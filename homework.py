@@ -6,6 +6,7 @@ import time
 import requests
 from dotenv import load_dotenv
 from telegram import Bot
+from logging import StreamHandler
 
 load_dotenv()
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
@@ -24,6 +25,25 @@ HOMEWORK_STATUSES = {
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
 }
 
+# Логирование
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
+
+logger = logging.getLogger(__name__)
+
+logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
+logger.setLevel(logging.ERROR)
+logger.setLevel(logging.CRITICAL)
+
+handler = logging.StreamHandler(stream=sys.stdout)
+logger.addHandler(handler)
+
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(name)s '
+                              '- %(message)s')
+handler.setFormatter(formatter)
+
 
 def check_tokens():
     """Проверяет доступность наших токенов"""
@@ -38,6 +58,7 @@ def get_api_answer(current_timestamp):
     params = {'from_date': timestamp}
     homework_response = requests.get(ENDPOINT, headers=HEADERS, params=params)
     if homework_response.status_code != 200:
+        logging.error('Эндпоинт недоступен')
         raise homework_response.raise_for_status()
     return homework_response.json()
 
@@ -56,7 +77,7 @@ def check_response(response):
     if not isinstance(response.get('homeworks'), list):
         logging.error('Ответ должен быть списком')
         raise TypeError('Ответ должен быть списком')
-    return response['homeworks']
+    return response.get('homeworks')
 
 
 def parse_status(homework):
@@ -84,13 +105,14 @@ def send_message(bot, message):
         logging.info('Сообщение отправлено')
         return bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
     except Exception as e:
-        logging.info(f'Cообщение не отправилось, ошибка: {e}')
+        logging.error(f'Cообщение не отправилось, ошибка: {e}')
 
 
 def main():
     bot = Bot(token=TELEGRAM_TOKEN)
-    current_timestamp = int(time.time())
+    current_timestamp = int(time.time()) - 12000000
     last_message = ''
+    last_error_message = ''
     if not check_tokens():
         logging.critical('Ошибка с обязательными переменными,'
                          'проверьте файл .env, что-то пошло не так')
@@ -98,27 +120,32 @@ def main():
     while True:
         try:
             response = get_api_answer(current_timestamp)
+            current_timestamp = response.get('current_date')
             review_homework_list = check_response(response)
-            if len(review_homework_list) == 0:
-                logging.debug('Пустой список -> Нет д/з на проверку')
-                break
-            for last_reviewed_homework in review_homework_list:
-                bot_message = parse_status(last_reviewed_homework)
+            last_homework = review_homework_list[0]
+            try:
+                bot_message = parse_status(last_homework)
                 if bot_message != last_message:
                     send_message(bot, bot_message)
                     last_message = bot_message
-            current_timestamp = response.get('current_date')
+            except len(review_homework_list) == 0:
+                logger.debug('Нет д/з на проверку')
+                time.sleep(RETRY_TIME)
             time.sleep(RETRY_TIME)
         except Exception as e:
-            logging.exception(f'Бот столкнулся с ошибкой: {e}')
-            send_message(bot, f'Бот столкнулся с ошибкой: {e}')
+            logger.error(f'Бот столкнулся с ошибкой: {e}')
+            error_message = f'Бот столкнулся с ошибкой: {e}'
+            if error_message != last_error_message:
+                send_message(bot, error_message)
+                last_error_message = error_message
+            time.sleep(RETRY_TIME)
+        else:
             time.sleep(RETRY_TIME)
 
 
 if __name__ == '__main__':
     logging.basicConfig(
         level=logging.DEBUG,
-        format='%(asctime)s [%(levelname)s] %(message)s',
-        stream=sys.stdout
-    )
+        format='%(asctime)s [%(levelname)s] %(message)s')
+    handler = StreamHandler(stream=sys.stdout)
     main()
