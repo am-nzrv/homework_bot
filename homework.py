@@ -46,7 +46,7 @@ handler.setFormatter(formatter)
 
 
 def check_tokens():
-    """Проверяет доступность наших токенов"""
+    """Проверяет доступность наших токенов."""
     if not (TELEGRAM_TOKEN and TELEGRAM_CHAT_ID and PRACTICUM_TOKEN):
         return False
     return True
@@ -109,8 +109,9 @@ def send_message(bot, message):
 
 
 def main():
+    """Отвечает за выполнение всех функций бота"""
     bot = Bot(token=TELEGRAM_TOKEN)
-    current_timestamp = int(time.time()) - 12000000
+    current_timestamp = int(time.time())
     last_message = ''
     last_error_message = ''
     if not check_tokens():
