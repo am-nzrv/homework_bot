@@ -28,7 +28,6 @@ HOMEWORK_STATUSES = {
 }
 
 # Логирование
-
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
@@ -96,7 +95,7 @@ def main():
     last_error_message = ''
     if not check_tokens():
         logger.critical('Ошибка с обязательными переменными,'
-                         'проверьте файл .env, что-то пошло не так')
+                        'проверьте файл .env, что-то пошло не так')
         exit()
     while True:
         try:
@@ -127,4 +126,5 @@ if __name__ == '__main__':
     #     level=logging.DEBUG,
     #     format='%(asctime)s [%(levelname)s] %(message)s',
     #     stream=sys.stdout)
+    # handler = StreamHandler(stream=sys.stdout)
     main()
