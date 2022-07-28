@@ -38,7 +38,8 @@ logger = logging.getLogger(__name__)
 
 def check_tokens():
     """Проверяет доступность наших токенов."""
-    return all(TOKENS)
+    tokens = (TELEGRAM_CHAT_ID, TELEGRAM_TOKEN, PRACTICUM_TOKEN)
+    return all(tokens)
 
 
 def get_api_answer(current_timestamp):
