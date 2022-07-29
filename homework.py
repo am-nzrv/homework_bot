@@ -4,30 +4,25 @@ import sys
 import time
 
 import requests
-import telegram.error
 from dotenv import load_dotenv
+from requests import HTTPError
 from telegram import Bot
-
-from my_exceptions import NoHomeworkToReview
+from telegram.error import TelegramError
 
 load_dotenv()
+
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
-TOKENS = (TELEGRAM_CHAT_ID, TELEGRAM_TOKEN, PRACTICUM_TOKEN)
-
-UNIX_TIME_NOW = int(time.time())
 RETRY_TIME = 1500
 ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
 HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
-
 HOMEWORK_STATUSES = {
     'approved': 'Работа проверена: ревьюеру всё понравилось. Ура!',
     'reviewing': 'Работа взята на проверку ревьюером.',
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
 }
 
-# Логирование
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
@@ -38,18 +33,22 @@ logger = logging.getLogger(__name__)
 
 def check_tokens():
     """Проверяет доступность наших токенов."""
-    tokens = (TELEGRAM_CHAT_ID, TELEGRAM_TOKEN, PRACTICUM_TOKEN)
-    return all(tokens)
+    return all((TELEGRAM_CHAT_ID, TELEGRAM_TOKEN, PRACTICUM_TOKEN))
 
 
 def get_api_answer(current_timestamp):
     """Отправляет запрос к эндпоинту."""
     timestamp = current_timestamp or int(time.time())
     params = {'from_date': timestamp}
-    homework_response = requests.get(ENDPOINT, headers=HEADERS, params=params)
-    if homework_response.status_code != 200:
-        logger.error('Эндпоинт недоступен')
-        raise homework_response.raise_for_status()
+    try:
+        homework_response = requests.get(ENDPOINT,
+                                         headers=HEADERS,
+                                         params=params)
+        if homework_response.status_code != 200:
+            raise HTTPError(f'Ошибка ответа от эндпоинта: '
+                            f'{homework_response.status_code}')
+    except TelegramError as error:
+        raise TelegramError(f'Ошибка доступа к эндпоинту {error}')
     return homework_response.json()
 
 
@@ -70,10 +69,10 @@ def parse_status(homework):
     """Извлекает статус последней домашней работы."""
     if not homework.get('homework_name'):
         raise KeyError('Нет имени домашней работы')
-    homework_name = homework.get('homework_name')
+    homework_name = homework['homework_name']
     if not homework.get('status'):
         raise KeyError('Нет статуса домашней работы')
-    homework_status = homework.get('status')
+    homework_status = homework['status']
     if homework_status not in HOMEWORK_STATUSES.keys():
         raise KeyError('Недокументированный статус домашней работы')
     verdict = HOMEWORK_STATUSES.get(homework_status)
@@ -84,20 +83,22 @@ def send_message(bot, message):
     """Отправляет сообщение в Telegram чат."""
     try:
         bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
-    except telegram.error.InvalidToken as error:
-        return f'Cообщение не отправилось, ошибка: {error}'
+    except TelegramError as error:
+        raise TelegramError(f'Cообщение не отправилось, '
+                            f'ошибка: {error}')
 
 
 def main():
     """Отвечает за выполнение всех функций бота."""
     bot = Bot(token=TELEGRAM_TOKEN)
-    current_timestamp = int(time.time())
+    current_timestamp = int(time.time()) - 500000
     last_message = ''
+    error_message = ''
     last_error_message = ''
     if not check_tokens():
         logger.critical('Ошибка с обязательными переменными,'
                         'проверьте файл .env, что-то пошло не так')
-        exit()
+        sys.exit('Ошибка с обязательными переменными')
     while True:
         try:
             response = get_api_answer(current_timestamp)
@@ -109,23 +110,24 @@ def main():
                 send_message(bot, bot_message)
                 logger.info('Сообщение успешно отправлено')
                 last_message = bot_message
-            if len(review_homework_list) == 0:
-                logger.debug('Нет д/з на проверку')
-                raise NoHomeworkToReview('Нет д/з на проверку')
+        except TelegramError as error:
+            logger.error(f'{error}')
+            last_error_message = f'{error}'
+        except HTTPError as error:
+            logger.error(f'{error}')
+            last_error_message = f'{error}'
+        except IndexError:
+            logger.error('Нет д/з на проверку')
+            last_error_message = 'Нет д/з на проверку'
         except Exception as error:
-            logger.error(f'Бот столкнулся с ошибкой: {error}')
-            error_message = f'Бот столкнулся с ошибкой: {error}'
-            if error_message != last_error_message:
-                send_message(bot, error_message)
-                last_error_message = error_message
+            logger.error(f'{error}')
+            last_error_message = f'{error}'
         finally:
+            if error_message != last_error_message:
+                send_message(bot, last_error_message)
+                error_message = last_error_message
             time.sleep(RETRY_TIME)
 
 
 if __name__ == '__main__':
-    # logging.basicConfig(
-    #     level=logging.DEBUG,
-    #     format='%(asctime)s [%(levelname)s] %(message)s',
-    #     stream=sys.stdout)
-    # handler = StreamHandler(stream=sys.stdout)
     main()
