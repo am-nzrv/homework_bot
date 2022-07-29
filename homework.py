@@ -91,7 +91,7 @@ def send_message(bot, message):
 def main():
     """Отвечает за выполнение всех функций бота."""
     bot = Bot(token=TELEGRAM_TOKEN)
-    current_timestamp = int(time.time()) - 500000
+    current_timestamp = int(time.time())
     last_message = ''
     error_message = ''
     last_error_message = ''
