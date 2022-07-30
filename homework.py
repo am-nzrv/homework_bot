@@ -9,6 +9,8 @@ from requests import HTTPError
 from telegram import Bot
 from telegram.error import TelegramError
 
+from exceptions import NoHomeworkToReview
+
 load_dotenv()
 
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
@@ -40,15 +42,12 @@ def get_api_answer(current_timestamp):
     """Отправляет запрос к эндпоинту."""
     timestamp = current_timestamp or int(time.time())
     params = {'from_date': timestamp}
-    try:
-        homework_response = requests.get(ENDPOINT,
-                                         headers=HEADERS,
-                                         params=params)
-        if homework_response.status_code != 200:
-            raise HTTPError(f'Ошибка ответа от эндпоинта: '
-                            f'{homework_response.status_code}')
-    except TelegramError as error:
-        raise TelegramError(f'Ошибка доступа к эндпоинту {error}')
+    homework_response = requests.get(ENDPOINT,
+                                     headers=HEADERS,
+                                     params=params)
+    if homework_response.status_code != 200:
+        raise HTTPError(f'Ошибка ответа от эндпоинта: '
+                        f'{homework_response.status_code}')
     return homework_response.json()
 
 
@@ -94,7 +93,6 @@ def main():
     current_timestamp = int(time.time())
     last_message = ''
     error_message = ''
-    last_error_message = ''
     if not check_tokens():
         logger.critical('Ошибка с обязательными переменными,'
                         'проверьте файл .env, что-то пошло не так')
@@ -104,6 +102,9 @@ def main():
             response = get_api_answer(current_timestamp)
             current_timestamp = response.get('current_date')
             review_homework_list = check_response(response)
+            if len(review_homework_list) == 0:
+                logger.debug('Отсутствует новый статус домашней работы')
+                raise NoHomeworkToReview('Нет д/з на проверку')
             last_homework = review_homework_list[0]
             bot_message = parse_status(last_homework)
             if bot_message != last_message:
@@ -111,22 +112,20 @@ def main():
                 logger.info('Сообщение успешно отправлено')
                 last_message = bot_message
         except TelegramError as error:
-            logger.error(f'{error}')
-            last_error_message = f'{error}'
+            logger.error(f'Ошибка в работе бота: {error}')
         except HTTPError as error:
             logger.error(f'{error}')
-            last_error_message = f'{error}'
-        except IndexError:
-            logger.error('Нет д/з на проверку')
-            last_error_message = 'Нет д/з на проверку'
         except Exception as error:
-            logger.error(f'{error}')
-            last_error_message = f'{error}'
-        finally:
+            logger.error(f'Возникла ошибка: {error}')
+            # Отправляются сообщения только об ошибках,
+            # которые не мешают работе бота, например,
+            # когда отсутствует новый статус у д/з
+            last_error_message = f'Возникла ошибка: {error}'
             if error_message != last_error_message:
                 send_message(bot, last_error_message)
                 error_message = last_error_message
-            time.sleep(RETRY_TIME)
+        finally:
+            time.sleep(1)
 
 
 if __name__ == '__main__':
