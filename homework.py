@@ -11,6 +11,7 @@ from telegram.error import TelegramError
 
 from exceptions import NoHomeworkToReview
 
+
 load_dotenv()
 
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
@@ -42,9 +43,7 @@ def get_api_answer(current_timestamp):
     """Отправляет запрос к эндпоинту."""
     timestamp = current_timestamp or int(time.time())
     params = {'from_date': timestamp}
-    homework_response = requests.get(ENDPOINT,
-                                     headers=HEADERS,
-                                     params=params)
+    homework_response = requests.get(ENDPOINT, headers=HEADERS, params=params)
     if homework_response.status_code != 200:
         raise HTTPError(f'Ошибка ответа от эндпоинта: '
                         f'{homework_response.status_code}')
@@ -101,11 +100,11 @@ def main():
         try:
             response = get_api_answer(current_timestamp)
             current_timestamp = response.get('current_date')
-            review_homework_list = check_response(response)
-            if len(review_homework_list) == 0:
+            homeworks_for_review = check_response(response)
+            if not len(homeworks_for_review):
                 logger.debug('Отсутствует новый статус домашней работы')
                 raise NoHomeworkToReview('Нет д/з на проверку')
-            last_homework = review_homework_list[0]
+            last_homework = homeworks_for_review[0]
             bot_message = parse_status(last_homework)
             if bot_message != last_message:
                 send_message(bot, bot_message)
@@ -113,19 +112,14 @@ def main():
                 last_message = bot_message
         except TelegramError as error:
             logger.error(f'Ошибка в работе бота: {error}')
-        except HTTPError as error:
-            logger.error(f'{error}')
-        except Exception as error:
+        except Exception or HTTPError as error:
             logger.error(f'Возникла ошибка: {error}')
-            # Отправляются сообщения только об ошибках,
-            # которые не мешают работе бота, например,
-            # когда отсутствует новый статус у д/з
             last_error_message = f'Возникла ошибка: {error}'
             if error_message != last_error_message:
                 send_message(bot, last_error_message)
                 error_message = last_error_message
         finally:
-            time.sleep(1)
+            time.sleep(RETRY_TIME)
 
 
 if __name__ == '__main__':
