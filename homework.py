@@ -91,7 +91,7 @@ def main():
     bot = Bot(token=TELEGRAM_TOKEN)
     current_timestamp = int(time.time())
     last_message = ''
-    error_message = ''
+    error_message = 'Возникла ошибка: Нет д/з на проверку'
     if not check_tokens():
         logger.critical('Ошибка с обязательными переменными,'
                         'проверьте файл .env, что-то пошло не так')
